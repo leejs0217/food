@@ -7,7 +7,7 @@ import streamlit as st
 st.set_page_config(page_title="학교 급식 조회 서비스", page_icon="🏫")
 
 
-# 한국 시간(KST) 기준 오늘 날짜 구하기
+# 1. 한국 시간(KST) 기준 오늘 날짜 구하기
 def get_today_kr():
     kr_tz = pytz.timezone("Asia/Seoul")
     return datetime.now(kr_tz).date()
@@ -21,7 +21,7 @@ def get_api_key():
         return None
 
 
-# 축약어 확장 처리
+# 2. 축약어 확장 처리 ('여고' -> '여자고등학교', '고' -> '고등학교' 등)
 def expand_school_name(name):
     name_expanded = name
     replacements = [
@@ -42,7 +42,7 @@ def expand_school_name(name):
     return name_expanded
 
 
-# 1. 학교 검색 API 호출
+# 3. 학교 검색 API 호출
 def search_school(school_name):
     url = "https://open.neis.go.kr/hub/schoolInfo"
     api_key = get_api_key()
@@ -62,7 +62,7 @@ def search_school(school_name):
         return []
 
 
-# 2. 급식 정보 API 호출
+# 4. 급식 정보 API 호출
 def get_meal_info(office_code, school_code, ymd_str):
     url = "https://open.neis.go.kr/hub/mealServiceDietInfo"
     api_key = get_api_key()
@@ -92,12 +92,12 @@ def get_meal_info(office_code, school_code, ymd_str):
         return None
 
 
-# UI 화면 구성
+# --- UI 구성 ---
 st.title("🏫 학교 급식(중식) 조회")
 
-# 학교 입력 및 검색
+# 학교 입력
 input_name = st.text_input(
-    "학교 이름을 입력하세요", placeholder="예: 수도여고, 서울고"
+    "학교 이름을 입력하세요", placeholder="예: 수도여고, 송탄고, 은혜고"
 )
 selected_school = None
 
@@ -105,7 +105,7 @@ if input_name:
     search_keyword = input_name.strip()
     results = search_school(search_keyword)
 
-    # 검색 결과가 없으면 줄임말 확장 후 재검색
+    # 검색 결과가 없으면 축약어를 풀어서 한 번 더 검색
     if not results:
         expanded_keyword = expand_school_name(search_keyword)
         if expanded_keyword != search_keyword:
@@ -115,6 +115,7 @@ if input_name:
             results = search_school(expanded_keyword)
 
     if results:
+        # 학교 목록 셀렉트박스 (지역 포함)
         options = {
             f"{row['SCHUL_NM']} ({row['LCTN_SC_NM']})": row for row in results
         }
@@ -125,13 +126,14 @@ if input_name:
     else:
         st.warning("해당 이름의 학교를 찾을 수 없습니다. 이름을 확인해 주세요.")
 
-# 날짜 선택 및 급식 결과 출력
+# 날짜 선택 및 급식 표시
 if selected_school:
     st.divider()
     st.subheader(
         f"📍 {selected_school['SCHUL_NM']} ({selected_school['LCTN_SC_NM']})"
     )
 
+    # 기본값: 한국 시간 기준 오늘
     today = get_today_kr()
     selected_date = st.date_input("날짜를 선택하세요", value=today)
     ymd_str = selected_date.strftime("%Y%m%d")
@@ -145,9 +147,11 @@ if selected_school:
     if meal_data:
         st.markdown(f"### 🍽️ {selected_date.strftime('%Y년 %m월 %d일')} 중식")
 
+        # 칼로리 정보
         cal_info = meal_data.get("CAL_INFO", "정보 없음")
         st.caption(f"🔥 칼로리: {cal_info}")
 
+        # 원래 메뉴 및 알레르기 번호 (<br/> 줄바꿈 정제)
         ddish_nm = meal_data.get("DDISH_NM", "")
         clean_menu = re.sub(r"<br\s*/?>", "\n", ddish_nm)
 
