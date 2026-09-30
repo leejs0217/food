@@ -26,7 +26,7 @@ today = datetime.now(tz_kst).date()
 one_year_ago = today - timedelta(days=365)
 
 # 2. 나이스 API 전체 기간 급식 데이터 수집 함수
-@st.cache_data(ttl=3600)  # 1시간 동안 결과 캐싱하여 빠른 실행
+@st.cache_data(ttl=3600)  # 1시간 동안 결과 캐싱
 def fetch_year_meals(start_date, end_date):
     url = "https://open.neis.go.kr/hub/mealServiceDietInfo"
     params = {
@@ -54,7 +54,7 @@ with st.spinner("송탄고등학교의 최근 1년간 급식 데이터를 분석
 
 if meals_row:
     # 3. 메뉴명 정제 및 빈도 계산
-    menu_records = []  # (정제된 메뉴명, 제공 날짜)
+    menu_records = []
     
     for row in meals_row:
         date_str = row.get("MLSV_YMD", "")
@@ -74,10 +74,10 @@ if meals_row:
 
     df = pd.DataFrame(menu_records)
     
-    # 메뉴별 등장 횟수 및 제공 날짜 집계
+    # [수정] 띄어쓰기 오타 수정 (제공일자_목록)
     summary = df.groupby("메뉴명").agg(
         출현횟수=("제공일자", "count"),
-        제공일자 목록=("제공일자", lambda x: ", ".join(sorted(set(x))))
+        제공일자_목록=("제공일자", lambda x: ", ".join(sorted(set(x))))
     ).reset_index()
 
     # 가장 적게 나온 순(오름차순)으로 정렬
@@ -104,7 +104,7 @@ if meals_row:
 
     top_least = summary_sorted.head(10)
 
-    # 카드로 정렬하여 보기 좋게 출력
+    # 카드로 정렬하여 출력
     cols = st.columns(2)
     for idx, (_, row) in enumerate(top_least.iterrows()):
         col_idx = idx % 2
@@ -112,7 +112,7 @@ if meals_row:
             with st.container(border=True):
                 st.markdown(f"### **{row['메뉴명']}**")
                 st.markdown(f"* **제공 횟수:** `{row['출현횟수']}회`")
-                st.markdown(f"* **제공된 날짜:** {row['제공일자 목록']}")
+                st.markdown(f"* **제공된 날짜:** {row['제공일자_목록']}")
 
     st.divider()
 
