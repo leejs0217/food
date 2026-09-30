@@ -12,59 +12,48 @@ SCHOOL_NAME = "송탄고등학교"
 
 # 페이지 설정
 st.set_page_config(
-    page_title="일년간 가장 적게 나온 메뉴",
+    page_title="최근 한달간 가장 적게 나온 메뉴",
     page_icon="🔍",
     layout="wide"
 )
 
-st.title("🔍 일년간 가장 적게 나온 메뉴")
-st.caption(f"🏫 분석 대상: **{SCHOOL_NAME}** (최근 1년 전체 급식 데이터 분석)")
+st.title("🔍 최근 한달간 가장 적게 나온 메뉴")
+st.caption(f"🏫 분석 대상: **{SCHOOL_NAME}** (최근 30일 급식 데이터 기준)")
 
-# 1. 한국 표준시(KST) 기준 날짜 범위 설정 (오늘부터 365일 전까지)
+# 1. 한국 표준시(KST) 기준 날짜 범위 설정 (오늘부터 과거 30일)
 tz_kst = pytz.timezone("Asia/Seoul")
 today = datetime.now(tz_kst).date()
-one_year_ago = today - timedelta(days=365)
+one_month_ago = today - timedelta(days=30)
 
-# 2. 1년치 데이터를 30일씩 나누어 수집하는 함수 (인증키 미사용 제한 극복)
+# 2. 최근 한 달간 급식 데이터 수집 함수
 @st.cache_data(ttl=3600)
-def fetch_full_year_meals(start_date, end_date):
+def fetch_month_meals(start_date, end_date):
     url = "https://open.neis.go.kr/hub/mealServiceDietInfo"
-    all_rows = []
+    params = {
+        "Type": "json",
+        "ATPT_OFCDC_SC_CODE": ATPT_OFCDC_SC_CODE,
+        "SD_SCHUL_CODE": SD_SCHUL_CODE,
+        "MMEAL_SC_CODE": "2",  # 중식
+        "MLSV_FROM_YMD": start_date.strftime("%Y%m%d"),
+        "MLSV_TO_YMD": end_date.strftime("%Y%m%d"),
+        "pSize": 1000
+    }
     
-    # 30일 단위로 날짜 구간 생성
-    current_start = start_date
-    while current_start < end_date:
-        current_end = min(current_start + timedelta(days=30), end_date)
-        
-        params = {
-            "Type": "json",
-            "ATPT_OFCDC_SC_CODE": ATPT_OFCDC_SC_CODE,
-            "SD_SCHUL_CODE": SD_SCHUL_CODE,
-            "MMEAL_SC_CODE": "2",  # 중식
-            "MLSV_FROM_YMD": current_start.strftime("%Y%m%d"),
-            "MLSV_TO_YMD": current_end.strftime("%Y%m%d"),
-            "pSize": 1000
-        }
-        
-        try:
-            response = requests.get(url, params=params, timeout=10)
-            data = response.json()
-            if "mealServiceDietInfo" in data:
-                rows = data["mealServiceDietInfo"][1]["row"]
-                all_rows.extend(rows)
-        except Exception:
-            pass
-        
-        current_start = current_end + timedelta(days=1)
-        
-    return all_rows
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        data = response.json()
+        if "mealServiceDietInfo" in data:
+            return data["mealServiceDietInfo"][1]["row"]
+        return []
+    except Exception:
+        return []
 
-# 로딩 안내
-with st.spinner("송탄고등학교의 1년치 급식 데이터를 수집하고 있습니다. 잠시만 기다려 주세요..."):
-    meals_row = fetch_full_year_meals(one_year_ago, today)
+# 데이터 로딩 상태 표시
+with st.spinner("송탄고등학교의 최근 한 달간 급식 데이터를 불러오는 중입니다..."):
+    meals_row = fetch_month_meals(one_month_ago, today)
 
 if meals_row:
-    # 3. 메뉴 데이터 추출 및 정제
+    # 3. 메뉴 데이터 정제
     menu_records = []
     
     for row in meals_row:
@@ -72,7 +61,7 @@ if meals_row:
         formatted_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
         raw_ddish = row.get("DDISH_NM", "")
         
-        # <br/> 태그 분리
+        # <br/> 태그로 메뉴 구분
         items = re.split(r"<br\s*/?>", raw_ddish)
         for item in items:
             item = item.strip()
@@ -101,7 +90,7 @@ if meals_row:
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("📅 수집된 총 급식 일수", f"{total_days}일")
+        st.metric("📅 수집된 급식 일수", f"{total_days}일")
     with col2:
         st.metric("🍱 총 메뉴 종류", f"{total_menus}가지")
     with col3:
@@ -110,8 +99,8 @@ if meals_row:
     st.divider()
 
     # 4. 결과 출력: 가장 적게 나온 메뉴 TOP 10
-    st.subheader("🥇 최근 1년간 가장 적게 나온 메뉴 TOP 10")
-    st.write("1년 동안 단 1~2회만 등장한 메뉴들입니다.")
+    st.subheader("🥇 최근 한달간 가장 적게 나온 메뉴 TOP 10")
+    st.write("최근 30일 동안 단 1회만 제공된 희귀 메뉴들입니다.")
 
     top_least = summary_sorted.head(10)
 
@@ -131,4 +120,4 @@ if meals_row:
         st.dataframe(summary_sorted, use_container_width=True)
 
 else:
-    st.warning("급식 데이터를 불러올 수 없습니다. 네트워크 연결을 확인해 주세요.")
+    st.warning("최근 한 달간의 급식 데이터를 불러올 수 없습니다. (방학 기간이거나 급식 데이터가 없는 경우)")
