@@ -92,7 +92,7 @@ def fetch_school_codes():
     return school_info_map
 
 
-# --- 3. 3월~12월 급식 데이터 수집 (안정적 월별 분할 요청) ---
+# --- 3. 3월~12월 급식 데이터 수집 ---
 @st.cache_data(ttl=3600)
 def fetch_and_analyze_desserts(year):
     school_map = fetch_school_codes()
@@ -102,7 +102,6 @@ def fetch_and_analyze_desserts(year):
     records = []
     monthly_menu_detail = {}
 
-    # 3월부터 12월까지 반복 수집
     months = list(range(3, 13))
 
     for sch_short, info in school_map.items():
@@ -114,9 +113,7 @@ def fetch_and_analyze_desserts(year):
             if month_str not in monthly_menu_detail[sch_short]:
                 monthly_menu_detail[sch_short][month_str] = []
 
-            # 해당 월의 시작일과 종료일 계산 (예: 20250301~20250331)
             start_ymd = f"{year}{m:02d}01"
-            # 12월은 31일, 4,6,9,11월은 30일, 나머지 31일
             end_day = 30 if m in [4, 6, 9, 11] else 31
             end_ymd = f"{year}{m:02d}{end_day}"
 
@@ -184,10 +181,9 @@ with st.spinner(
 if df.empty:
     st.warning("선택한 연도에 급식 데이터가 없거나 수집하지 못했습니다.")
 else:
-    # 3월 ~ 12월 정렬 순서
     months_order = [f"{m}월" for m in range(3, 13)]
 
-    # 1. 메인 질문: 학교별로 디저트가 가장 많이 나온 달
+    # 1. 학교별로 디저트가 가장 많이 나온 달
     st.divider()
     st.subheader("🏆 학교별 디저트가 가장 많이 나온 달")
 
@@ -215,7 +211,7 @@ else:
             else:
                 st.metric(label=f"🏫 {sch}", value="데이터 없음")
 
-    # 2. 학교별 월별 제공 건수 비교 차트
+    # 2. 학교별 월별 제공 건수 차트
     st.divider()
     st.subheader("📈 학교별 월별(3월~12월) 디저트 제공 건수")
 
@@ -228,7 +224,7 @@ else:
     )
     st.bar_chart(pv_df)
 
-    # 3. 추가 기능: 특정 달을 지정해서 5개 학교 비교하기
+    # 3. 특정 달(월) 기준 비교
     st.divider()
     st.subheader("🔍 특정 달(월) 기준 5개 학교 디저트 제공량 비교")
 
@@ -256,7 +252,7 @@ else:
                 f"##### 📊 {selected_compare_month} 학교별 디저트 제공 횟수"
             )
             st.dataframe(comp_counts, use_container_width=True)
-        with col_b_chart := col_c2:
+        with col_c2:
             st.markdown(
                 f"##### 🍩 {selected_compare_month} 학교별 최다 디저트 메뉴"
             )
@@ -285,7 +281,7 @@ else:
                 pd.DataFrame(top_per_school), use_container_width=True
             )
 
-    # 4. 학교별 / 달별(3월~12월) 상세 후식 세부사항
+    # 4. 학교별 / 달별(3월~12월) 상세 후식 목록
     st.divider()
     st.subheader("🍰 학교별 / 달별 최다 제공 후식 세부사항")
 
@@ -307,7 +303,6 @@ else:
         with col_b:
             st.markdown(f"#### 📅 {selected_sch} 월별 후식 목록")
 
-            # 3월부터 12월까지 전체 달이 드롭다운에 표시됨
             selected_m = st.selectbox("달 선택", months_order)
 
             m_items = monthly_detail.get(selected_sch, {}).get(selected_m, [])
