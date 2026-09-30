@@ -1,4 +1,4 @@
-from collections import Counter, defaultdict
+from collections import Counter
 from datetime import datetime
 import re
 import pandas as pd
@@ -89,6 +89,7 @@ def fetch_school_codes():
     return school_info_map
 
 
+# 캐싱 오류 해결: defaultdict 대신 일반 dict 반환
 @st.cache_data(ttl=3600)
 def fetch_and_analyze_desserts(start_ymd, end_ymd):
     school_map = fetch_school_codes()
@@ -96,9 +97,12 @@ def fetch_and_analyze_desserts(start_ymd, end_ymd):
     api_key = get_api_key()
 
     records = []
-    monthly_menu_detail = defaultdict(lambda: defaultdict(list))
+    monthly_menu_detail = {}  # 일반 dict 사용
 
     for sch_short, info in school_map.items():
+        if sch_short not in monthly_menu_detail:
+            monthly_menu_detail[sch_short] = {}
+
         params = {
             "Type": "json",
             "ATPT_OFCDC_SC_CODE": info["office_code"],
@@ -123,6 +127,9 @@ def fetch_and_analyze_desserts(start_ymd, end_ymd):
                     continue
 
                 month_str = f"{int(ymd[4:6])}월"
+                if month_str not in monthly_menu_detail[sch_short]:
+                    monthly_menu_detail[sch_short][month_str] = []
+
                 ddish_nm = row.get("DDISH_NM", "")
                 clean_menu = re.sub(r"\([0-9\.]+\)", "", ddish_nm)
                 items = clean_menu.split("<br/>")
@@ -149,7 +156,7 @@ def fetch_and_analyze_desserts(start_ymd, end_ymd):
     return pd.DataFrame(records), monthly_menu_detail
 
 
-# --- UI ---
+# --- UI 화면 구성 ---
 st.title("📊 각 학교별로 디저트가 가장 많이 나온 달은?")
 
 col1, col2 = st.columns(2)
@@ -165,11 +172,13 @@ with st.spinner("급식 데이터를 분석 중입니다..."):
     df, monthly_detail = fetch_and_analyze_desserts(start_ymd, end_ymd)
 
 if df.empty:
-    st.warning("데이터가 없거나 급식 정보를 불러올 수 없습니다.")
+    st.warning(
+        "선택한 기간에 데이터가 없거나 급식 정보를 불러올 수 없습니다."
+    )
 else:
     months_order = [f"{m}월" for m in range(1, 13)]
 
-    # 요약 카드
+    # 1. 요약 카드 (가장 핵심 질문 답변)
     st.divider()
     st.subheader("🏆 학교별 디저트가 가장 많이 나온 달")
 
@@ -197,16 +206,20 @@ else:
             else:
                 st.metric(label=f"🏫 {sch}", value="데이터 없음")
 
-    # 기본 Streamlit 바 차트
+    # 2. 월별 디저트 제공 건수 막대그래프
     st.divider()
     st.subheader("📈 학교별 월별 디저트 제공 건수")
 
     pv_df = (
-        df.groupby(["월", "학교"]).size().unstack(fill_value=0).reindex(months_order).dropna(how="all")
+        df.groupby(["월", "학교"])
+        .size()
+        .unstack(fill_value=0)
+        .reindex(months_order)
+        .dropna(how="all")
     )
     st.bar_chart(pv_df)
 
-    # 상세 정보
+    # 3. 달별 최다 제공 후식 세부사항
     st.divider()
     st.subheader("🍰 학교별 / 달별 최다 제공 후식 세부사항")
 
@@ -232,7 +245,9 @@ else:
             ]
             if avail_months:
                 selected_m = st.selectbox("달 선택", avail_months)
-                m_items = monthly_detail[selected_sch][selected_m]
+                m_items = monthly_detail.get(selected_sch, {}).get(
+                    selected_m, []
+                )
                 m_counts = Counter(m_items).most_common()
                 st.dataframe(
                     pd.DataFrame(m_counts, columns=["후식 메뉴명", "제공 횟수"]),
