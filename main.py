@@ -1,139 +1,124 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import re
 import requests
 import streamlit as st
 import pytz
+import pandas as pd
 
-# 페이지 설정 및 제목
-st.set_page_config(page_title="우리 학교에서 가장 적게 나온 메뉴는?", page_icon="🍱")
-st.title("우리 학교에서 가장 적게 나온 메뉴는?")
+# 송탄고등학교 고정 정보
+ATPT_OFCDC_SC_CODE = "J10"      # 경기도교육청
+SD_SCHUL_CODE = "7530480"       # 송탄고등학교
+SCHOOL_NAME = "송탄고등학교"
 
+# 페이지 설정
+st.set_page_config(
+    page_title="우리 학교에서 가장 적게 나온 메뉴는?",
+    page_icon="🔍",
+    layout="wide"
+)
 
-# 1. 학교 정보 검색 함수
-def search_school(keyword):
-    url = "https://open.neis.go.kr/hub/schoolInfo"
-    params = {"Type": "json", "SCHUL_NM": keyword}
+st.title("🔍 우리 학교에서 가장 적게 나온 메뉴는?")
+st.caption(f"🏫 분석 대상: **{SCHOOL_NAME}** (최근 1년 급식 데이터 기준)")
 
-    try:
-        response = requests.get(url, params=params, timeout=5)
-        data = response.json()
+# 1. 한국 표준시(KST) 기준 날짜 범위 설정 (오늘부터 과거 1년)
+tz_kst = pytz.timezone("Asia/Seoul")
+today = datetime.now(tz_kst).date()
+one_year_ago = today - timedelta(days=365)
 
-        # 데이터 존재 여부 확인
-        if "schoolInfo" in data:
-            return data["schoolInfo"][1]["row"]
-        return []
-    except Exception:
-        return []
-
-
-# 줄여 쓴 학교명 자동 보정 검색 함수
-def get_school_list(query):
-    query = query.strip()
-    if not query:
-        return []
-
-    # 1차 검색
-    results = search_school(query)
-
-    # 검색 결과가 없고 대체 규칙 적용 가능한 경우 2차 검색
-    if not results:
-        expanded_query = query
-        # '여고' -> '여자고등학교', '고' -> '고등학교' (순서 중요)
-        if "여고" in expanded_query:
-            expanded_query = expanded_query.replace("여고", "여자고등학교")
-        elif expanded_query.endswith("고"):
-            expanded_query = expanded_query[:-1] + "고등학교"
-        elif "고" in expanded_query and not expanded_query.endswith("고등학교"):
-            expanded_query = expanded_query.replace("고", "고등학교")
-
-        if expanded_query != query:
-            results = search_school(expanded_query)
-
-    return results
-
-
-# 2. 급식 정보 조회 함수
-def get_meal_info(atpt_code, school_code, date_str):
+# 2. 나이스 API 전체 기간 급식 데이터 수집 함수
+@st.cache_data(ttl=3600)  # 1시간 동안 결과 캐싱하여 빠른 실행
+def fetch_year_meals(start_date, end_date):
     url = "https://open.neis.go.kr/hub/mealServiceDietInfo"
     params = {
         "Type": "json",
-        "ATPT_OFCDC_SC_CODE": atpt_code,
-        "SD_SCHUL_CODE": school_code,
+        "ATPT_OFCDC_SC_CODE": ATPT_OFCDC_SC_CODE,
+        "SD_SCHUL_CODE": SD_SCHUL_CODE,
         "MMEAL_SC_CODE": "2",  # 중식
-        "MLSV_FROM_YMD": date_str,
-        "MLSV_TO_YMD": date_str,
+        "MLSV_FROM_YMD": start_date.strftime("%Y%m%d"),
+        "MLSV_TO_YMD": end_date.strftime("%Y%m%d"),
+        "pSize": 1000  # 한 번에 최대 1000건 수집
     }
-
+    
     try:
-        response = requests.get(url, params=params, timeout=5)
+        response = requests.get(url, params=params, timeout=10)
         data = response.json()
-
         if "mealServiceDietInfo" in data:
-            row = data["mealServiceDietInfo"][1]["row"][0]
-            return row
-        return None
+            return data["mealServiceDietInfo"][1]["row"]
+        return []
     except Exception:
-        return None
+        return []
 
+# 데이터 로딩 상태 표시
+with st.spinner("송탄고등학교의 최근 1년간 급식 데이터를 분석 중입니다..."):
+    meals_row = fetch_year_meals(one_year_ago, today)
 
-# --- UI 구성 ---
+if meals_row:
+    # 3. 메뉴명 정제 및 빈도 계산
+    menu_records = []  # (정제된 메뉴명, 제공 날짜)
+    
+    for row in meals_row:
+        date_str = row.get("MLSV_YMD", "")
+        formatted_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
+        raw_ddish = row.get("DDISH_NM", "")
+        
+        # <br/> 태그로 메뉴 구분
+        items = re.split(r"<br\s*/?>", raw_ddish)
+        for item in items:
+            item = item.strip()
+            if not item:
+                continue
+            # 알레르기 번호 괄호 제거 (예: "쌀밥 (1.2.3)" -> "쌀밥")
+            clean_name = re.sub(r"\s*\([^)]*\)", "", item).strip()
+            if clean_name:
+                menu_records.append({"메뉴명": clean_name, "제공일자": formatted_date})
 
-# 학교 이름 입력
-school_name_input = st.text_input(
-    "학교 이름을 입력하세요", placeholder="예: 수도여고, 서울고, 신사중"
-)
+    df = pd.DataFrame(menu_records)
+    
+    # 메뉴별 등장 횟수 및 제공 날짜 집계
+    summary = df.groupby("메뉴명").agg(
+        출현횟수=("제공일자", "count"),
+        제공일자 목록=("제공일자", lambda x: ", ".join(sorted(set(x))))
+    ).reset_index()
 
-selected_school = None
+    # 가장 적게 나온 순(오름차순)으로 정렬
+    summary_sorted = summary.sort_values(by="출현횟수", ascending=True)
 
-if school_name_input:
-    schools = get_school_list(school_name_input)
+    # 상단 요약 지표
+    total_meals_count = len(meals_row)
+    total_unique_menus = len(summary)
+    min_count = summary_sorted["출현횟수"].min()
 
-    if not schools:
-        st.warning("해당 이름의 학교를 찾을 수 없습니다. 검색어를 확인해 주세요.")
-    else:
-        # 셀렉트박스에 표시할 레이블 생성 (학교명 + 지역)
-        options = {
-            f"{s['SCHUL_NM']} ({s['LCTN_SC_NM']})": s for s in schools
-        }
-        selected_option = st.selectbox(
-            "학교를 선택하세요", list(options.keys())
-        )
-        selected_school = options[selected_option]
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("📅 분석된 총 급식 일수", f"{total_meals_count}일")
+    with col2:
+        st.metric("🍱 등장한 총 메뉴 종류", f"{total_unique_menus}가지")
+    with col3:
+        st.metric("⭐ 최소 제공 횟수", f"{min_count}회")
 
-st.divider()
+    st.divider()
 
-# 날짜 선택 (기본값: 한국 표준시 KST 기준 오늘)
-tz_kst = pytz.timezone("Asia/Seoul")
-today_kst = datetime.now(tz_kst).date()
+    # 4. 결과 출력: 가장 적게 나온 메뉴 TOP 10
+    st.subheader("🥇 최근 1년간 가장 적게 나온 메뉴 TOP 10")
+    st.write("단 1~2회만 제공된 희귀 메뉴들입니다.")
 
-selected_date = st.date_input("날짜를 선택하세요", value=today_kst)
+    top_least = summary_sorted.head(10)
 
-# 급식 조회 및 출력
-if selected_school:
-    date_str = selected_date.strftime("%Y%m%d")
+    # 카드로 정렬하여 보기 좋게 출력
+    cols = st.columns(2)
+    for idx, (_, row) in enumerate(top_least.iterrows()):
+        col_idx = idx % 2
+        with cols[col_idx]:
+            with st.container(border=True):
+                st.markdown(f"### **{row['메뉴명']}**")
+                st.markdown(f"* **제공 횟수:** `{row['출현횟수']}회`")
+                st.markdown(f"* **제공된 날짜:** {row['제공일자 목록']}")
 
-    meal_data = get_meal_info(
-        selected_school["ATPT_OFCDC_SC_CODE"],
-        selected_school["SD_SCHUL_CODE"],
-        date_str,
-    )
+    st.divider()
 
-    st.subheader(
-        f"🍱 {selected_school['SCHUL_NM']} ({selected_date.strftime('%Y년 %m월 %d일')}) 중식"
-    )
+    # 전체 데이터 검색용 표 제공
+    with st.expander("📊 전체 메뉴별 출현 횟수 데이터 보기"):
+        st.dataframe(summary_sorted, use_container_width=True)
 
-    if meal_data:
-        # DDISH_NM 내 <br/> 태그를 줄바꿈으로 변경
-        raw_menu = meal_data["DDISH_NM"]
-        clean_menu = raw_menu.replace("<br/>", "\n").replace("<br>", "\n")
-
-        st.markdown("### 식단 메뉴")
-        st.text(clean_menu)
-
-        # 칼로리 정보 표기
-        cal_info = meal_data.get("CAL_INFO", "정보 없음")
-        st.info(f"🔥 **총 칼로리:** {cal_info}")
-    else:
-        st.info("해당 날짜에 조회된 급식 정보가 없습니다. (휴교일 또는 방학)")
 else:
-    st.info("학교를 먼저 검색하고 선택해 주세요.")
+    st.warning("급식 데이터를 불러올 수 없습니다. 네트워크 상태를 확인해 주세요.")
