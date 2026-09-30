@@ -1,3 +1,8 @@
+from datetime import datetime
+import re
+import requests
+import streamlit as st
+import pytz
 
 # 페이지 설정 및 제목
 st.set_page_config(page_title="우리 학교에서 가장 적게 나온 메뉴는?", page_icon="🍱")
