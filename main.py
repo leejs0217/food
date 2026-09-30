@@ -11,12 +11,12 @@ SCHOOL_NAME = "송탄고등학교"
 
 # 페이지 설정
 st.set_page_config(
-    page_title="각 학교별로 디저트가 많이 나온 날은?",
+    page_title="우리 학교에서 가장 적게 나온 메뉴는?",
     page_icon="📅",
     layout="wide"
 )
 
-st.title("📅 각 학교별로 디저트가 많이 나온 날은?")
+st.title("📅 우리 학교에서 가장 적게 나온 메뉴는?")
 st.caption(f"🏫 대상 학교: **{SCHOOL_NAME}** (경기도평택교육지원청 / 경기도교육청)")
 
 # 1. 한국 표준시(KST) 기준 오늘 날짜 구하기
@@ -103,4 +103,4 @@ if meal_data:
 
 else:
     # 급식이 없거나 조회 실패 시 안내 문구
-    st.info("🚫 급식이 없는 날입니다. (주말, 공휴일 또는 방학)")
+    st.info("🚫 급식이 없는 날입니다.")
